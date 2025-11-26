@@ -28,3 +28,4 @@ Thumbs.db
 *.pkl
 *.h5
 
+products_vectorstore/
