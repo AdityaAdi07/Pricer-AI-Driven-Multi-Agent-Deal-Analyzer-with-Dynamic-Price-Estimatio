@@ -1,4 +1,4 @@
-#🏷️ Pricer
+# 🏷️ Pricer
 AI Driven Multi Agent Deal Analyzer for Indian Ecommerce  
 Dynamic Price Estimation and Autonomous Deal Intelligence
 
