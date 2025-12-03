@@ -32,6 +32,34 @@ logger.setLevel(logging.INFO)
 
 
 # -----------------------------------------------------------
+# DOMAIN DETECTOR (Category Classifier)
+# -----------------------------------------------------------
+def classify_domain(text: str) -> str:
+    t = text.lower()
+
+    if any(x in t for x in ["iphone", "mobile", "smartphone", "android", "galaxy"]):
+        return "Mobiles"
+    if any(x in t for x in ["laptop", "macbook", "notebook", "ultrabook"]):
+        return "Laptops"
+    if any(x in t for x in ["headphone", "earphone", "earbud", "airpods"]):
+        return "Headphones"
+    if any(x in t for x in ["gaming", "ps5", "xbox", "controller", "gpu", "rtx"]):
+        return "Gaming"
+    if any(x in t for x in ["jeans", "shirt", "dress", "tshirt", "apparel"]):
+        return "Clothing"
+    if any(x in t for x in ["watch", "smartwatch"]):
+        return "Smartwatches"
+    if any(x in t for x in ["tv", "television"]):
+        return "TVs"
+    if any(x in t for x in ["camera", "dslr"]):
+        return "Cameras"
+    if any(x in t for x in ["home", "kitchen", "cookware", "appliance"]):
+        return "Home & Kitchen"
+
+    return "Others"
+
+
+# -----------------------------------------------------------
 # CLEAN HTML SNIPPET FROM RSS
 # -----------------------------------------------------------
 def extract(html_snippet: str) -> str:
@@ -50,7 +78,7 @@ def extract(html_snippet: str) -> str:
 
 
 # -----------------------------------------------------------
-# EXTRACT INDIAN PRICES FROM TEXT (₹, Rs, INR)
+# EXTRACT INDIAN PRICES FROM TEXT
 # -----------------------------------------------------------
 def extract_indian_price(text: str):
     patterns = [
@@ -66,7 +94,7 @@ def extract_indian_price(text: str):
 
 
 # -----------------------------------------------------------
-# SCRAPED DEAL CLASS (INDIA-READY)
+# SCRAPED DEAL CLASS
 # -----------------------------------------------------------
 class ScrapedDeal:
     category: str
@@ -78,7 +106,6 @@ class ScrapedDeal:
     raw_price: float | None
 
     def __init__(self, entry: Dict[str, str]):
-        # Basic entry info
         self.title = entry.get("title", "").strip()
         self.summary = extract(entry.get("summary", "") or entry.get("description", ""))
 
@@ -91,20 +118,20 @@ class ScrapedDeal:
         self.features = ""
         self.raw_price = None
 
-        # -------- Fetch source page safely --------
+        # CATEGORY ASSIGNMENT BASED ON TITLE
+        self.category = classify_domain(self.title + " " + self.summary)
+
         try:
             headers = {
                 "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120 Safari/537.36"
+                    "Mozilla/5.0"
             }
             r = requests.get(self.url, headers=headers, timeout=10)
             soup = BeautifulSoup(r.content, "html.parser")
 
-            # Try multiple content selectors (covers 95% of Indian sites)
             candidates = [
-                soup.find("div", {"class": "deal-desc"}),        # DesiDime
-                soup.find("div", {"class": "content-section"}),  # DealNews style
+                soup.find("div", {"class": "deal-desc"}),
+                soup.find("div", {"class": "content-section"}),
                 soup.find("div", {"class": "description"}),
                 soup.find("div", {"id": "content"}),
                 soup.find("article"),
@@ -117,19 +144,13 @@ class ScrapedDeal:
             if node:
                 content = node.get_text(" ", strip=True)
             else:
-                # fallback meta
                 meta = soup.find("meta", {"name": "description"}) or \
                        soup.find("meta", {"property": "og:description"})
 
-                if meta:
-                    content = meta.get("content", "")
-                else:
-                    content = self.summary
+                content = meta.get("content", "") if meta else self.summary
 
-            # Clean text
             content = re.sub(r"\s+", " ", content).strip()
 
-            # Extract features if present
             if "Features" in content:
                 parts = re.split(r"\bFeatures\b", content, maxsplit=1)
                 self.details = parts[0].strip()
@@ -138,15 +159,13 @@ class ScrapedDeal:
                 self.details = content
                 self.features = ""
 
-            # -------- Extract Indian price --------
             self.raw_price = (
-                extract_indian_price(self.details)
-                or extract_indian_price(self.summary)
-                or None
+                    extract_indian_price(self.details)
+                    or extract_indian_price(self.summary)
+                    or None
             )
 
-        except Exception as e:
-            logger.warning(f"Failed to scrape {self.url}: {e}")
+        except Exception:
             self.details = self.summary
             self.features = ""
             self.raw_price = extract_indian_price(self.summary)
@@ -157,6 +176,7 @@ class ScrapedDeal:
     def describe(self):
         return (
             f"Title: {self.title}\n"
+            f"Category: {self.category}\n"
             f"Raw Price: {self.raw_price}\n"
             f"Details: {self.details}\n"
             f"Features: {self.features}\n"
@@ -164,9 +184,9 @@ class ScrapedDeal:
         )
 
 
-    # -----------------------------------------------------------
-    # FETCH ALL DEALS
-    # -----------------------------------------------------------
+# -----------------------------------------------------------
+# FETCH ALL DEALS
+# -----------------------------------------------------------
     @classmethod
     def fetch(cls, show_progress: bool = False) -> List[Self]:
         deals = []
@@ -175,17 +195,16 @@ class ScrapedDeal:
         for feed_url in feed_iter:
             try:
                 feed = feedparser.parse(feed_url)
-            except Exception as e:
-                logger.warning(f"Failed to parse feed {feed_url}: {e}")
+            except:
                 continue
 
             for entry in feed.entries[:10]:
                 try:
                     deals.append(cls(entry))
-                except Exception as e:
-                    logger.warning(f"Bad entry skipped: {e}")
+                except:
+                    pass
 
-                time.sleep(0.4)  # be polite to servers
+                time.sleep(0.4)
 
         return deals
 
@@ -197,6 +216,7 @@ class Deal(BaseModel):
     product_description: str
     price: float
     url: str
+    domain: str = "Others"   # NEW FIELD
 
 
 class DealSelection(BaseModel):
